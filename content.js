@@ -24,6 +24,14 @@
     let scrollInterval = null;
     let scrollTarget = null;
 
+    // Modo "instantáneo": el marcador aparece al presionar sin retardo.
+    // La distinción click-corto (toggle) vs presión-larga (hold) se decide
+    // al SOLTAR el botón (mouseup), no al presionar.
+    let holdMode = false;
+    let middleDown = false;
+    let pressStartTime = 0;
+    const HOLD_THRESHOLD = 250;
+
     // --- VISUAL INDICATOR UI ---
     const marker = document.createElement('div');
     Object.assign(marker.style, {
@@ -65,8 +73,9 @@
 
     // --- MAIN EVENT LISTENER ---
     window.addEventListener('mousedown', (e) => {
-        // 1. Si el scroll ya está activo, cualquier clic lo detiene
-        if (isScrolling) {
+        // 1. Si el scroll está activo en modo TOGGLE, cualquier clic lo detiene.
+        //    (El modo HOLD se detiene con mouseup del botón medio, no con otros clics.)
+        if (isScrolling && !holdMode) {
             e.preventDefault();
             e.stopImmediatePropagation();
             stopScroll();
@@ -74,22 +83,28 @@
         }
 
         // 2. Si es Middle Click (Botón Central)
-        if (e.button === 1) { 
-            
+        if (e.button === 1) {
+
             // --- NUEVA LÓGICA: Detección de elementos interactivos ---
             // Verifica si el clic fue sobre un enlace, botón, input, etc.
             const isInteractive = e.target.closest('a, button, input, textarea, select, [role="button"], [contenteditable="true"]');
-            
+
             if (isInteractive) {
                 // Si es interactivo, NO activamos autoscroll.
                 // Retornamos para dejar que el navegador abra el link o presione el botón.
-                return; 
+                return;
             }
             // ---------------------------------------------------------
 
-            // Si es zona "segura", activamos autoscroll
+            // Si es zona "segura", activamos autoscroll INSTANTÁNEO.
+            // La distinción click-corto (toggle) vs presión-larga (hold) se decide
+            // al soltar el botón (mouseup), no aquí, para evitar cualquier retardo.
             e.preventDefault();
             e.stopImmediatePropagation();
+
+            middleDown = true;
+            pressStartTime = performance.now();
+            holdMode = true; // tentativo: si se suelta rápido, pasa a modo toggle
             startScroll(e);
         }
     }, true);
@@ -98,6 +113,22 @@
         if (isScrolling) {
             currentX = e.clientX;
             currentY = e.clientY;
+        }
+    }, true);
+
+    // --- MIDDLE RELEASE: decide si fue click toggle o hold-to-scroll ---
+    window.addEventListener('mouseup', (e) => {
+        if (e.button !== 1) return;
+        if (!middleDown) return;
+        middleDown = false;
+
+        const heldMs = performance.now() - pressStartTime;
+        if (heldMs < HOLD_THRESHOLD) {
+            // Soltó rápido → era un clic toggle: mantener scroll, detener en el próximo clic
+            holdMode = false;
+        } else {
+            // Mantuvo presionado → hold-to-scroll: detener al soltar
+            stopScroll();
         }
     }, true);
 
@@ -130,6 +161,8 @@
 
     function stopScroll() {
         isScrolling = false;
+        holdMode = false;
+        middleDown = false;
         marker.style.display = 'none';
         document.body.style.cursor = 'default';
         if (scrollInterval) clearInterval(scrollInterval);
